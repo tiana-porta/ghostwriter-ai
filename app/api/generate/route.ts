@@ -24,8 +24,10 @@ export async function POST(req: Request) {
   });
 
   const data = await response.json();
-  console.log("OpenAI API response:", data); // Debug log for Vercel functions/logs
+  // If there's an error in OpenAI response, show it in the output
+  if (data.error) {
+    return NextResponse.json({ result: `OpenAI Error: ${data.error.message}` });
+  }
   const result = data.choices?.[0]?.message?.content || "No response from AI.";
-
   return NextResponse.json({ result });
 }
