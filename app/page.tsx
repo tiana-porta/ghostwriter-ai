@@ -8,14 +8,22 @@ export default function Home() {
   const [type, setType] = useState("tweet");
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [lastPrompt, setLastPrompt] = useState({ topic: "", tone: "default", type: "tweet" });
 
-  // Onboarding modal state
+  // History and Favorites
+  const [history, setHistory] = useState<{ text: string; favorite: boolean }[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  // Onboarding modal
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
-    if (!localStorage.getItem("gw_onboarding_seen")) {
-      setShowModal(true);
-    }
+    if (!localStorage.getItem("gw_onboarding_seen")) setShowModal(true);
+    // Load history and favorites from localStorage
+    const savedHistory = JSON.parse(localStorage.getItem("gw_history") || "[]");
+    setHistory(savedHistory);
+    const savedFavorites = JSON.parse(localStorage.getItem("gw_favorites") || "[]");
+    setFavorites(savedFavorites);
   }, []);
 
   function handleCloseModal() {
@@ -23,24 +31,57 @@ export default function Home() {
     localStorage.setItem("gw_onboarding_seen", "yes");
   }
 
-  async function handleGenerate(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleGenerate(e: React.FormEvent, overridePrompt?: { topic: string; tone: string; type: string }) {
+    if (e) e.preventDefault();
     setLoading(true);
     setOutput("");
+    const promptData = overridePrompt || { topic, tone, type };
+    setLastPrompt(promptData);
 
     const res = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, tone, type }),
+      body: JSON.stringify(promptData),
     });
 
     const data = await res.json();
     setOutput(data.result);
+
+    // Add to history
+    if (data.result) {
+      const newHistory = [{ text: data.result, favorite: false }, ...history].slice(0, 10);
+      setHistory(newHistory);
+      localStorage.setItem("gw_history", JSON.stringify(newHistory));
+    }
     setLoading(false);
   }
 
-  function handleCopy() {
-    navigator.clipboard.writeText(output);
+  function handleCopy(text?: string) {
+    navigator.clipboard.writeText(text || output);
+  }
+
+  function handleRegenerate() {
+    if (lastPrompt.topic) {
+      handleGenerate(undefined as any, lastPrompt); // bypass event type
+    }
+  }
+
+  function handleShare(text?: string) {
+    const tweet = encodeURIComponent(text || output);
+    window.open(`https://twitter.com/intent/tweet?text=${tweet}`, "_blank");
+  }
+
+  function handleFavorite(idx: number) {
+    const newHistory = [...history];
+    newHistory[idx].favorite = !newHistory[idx].favorite;
+    setHistory(newHistory);
+    localStorage.setItem("gw_history", JSON.stringify(newHistory));
+    // Add to favorites if newly starred
+    if (newHistory[idx].favorite && !favorites.includes(newHistory[idx].text)) {
+      const newFavs = [newHistory[idx].text, ...favorites].slice(0, 20);
+      setFavorites(newFavs);
+      localStorage.setItem("gw_favorites", JSON.stringify(newFavs));
+    }
   }
 
   return (
@@ -53,6 +94,7 @@ export default function Home() {
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "Inter, sans-serif",
+        paddingBottom: 60,
       }}
     >
       {/* Onboarding Modal */}
@@ -213,6 +255,26 @@ export default function Home() {
             {loading ? "Generating..." : "Generate"}
           </button>
         </form>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8 }}>
+          <button
+            onClick={handleRegenerate}
+            disabled={loading || !lastPrompt.topic}
+            style={{
+              flex: 1,
+              padding: "10px 0",
+              background: "#352a86",
+              color: "#fff",
+              border: "none",
+              borderRadius: 10,
+              fontWeight: 600,
+              fontSize: 16,
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading || !lastPrompt.topic ? 0.6 : 1,
+            }}
+          >
+            Regenerate
+          </button>
+        </div>
         {output && (
           <div style={{ marginTop: 20 }}>
             <label style={{ color: "#b7b7ff" }}>Output</label>
@@ -232,26 +294,205 @@ export default function Home() {
               value={output}
               readOnly
             />
-            <button
-              onClick={handleCopy}
-              style={{
-                width: "100%",
-                padding: "10px 0",
-                background: "#392aac",
-                color: "#fff",
-                border: "none",
-                borderRadius: 10,
-                fontWeight: 600,
-                fontSize: 16,
-                cursor: "pointer",
-                marginTop: 0,
-              }}
-            >
-              Copy
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => handleCopy()}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  background: "#392aac",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 10,
+                  fontWeight: 600,
+                  fontSize: 16,
+                  cursor: "pointer",
+                }}
+              >
+                Copy
+              </button>
+              <button
+                onClick={() => handleShare()}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  background: "#1da1f2",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 10,
+                  fontWeight: 600,
+                  fontSize: 16,
+                  cursor: "pointer",
+                }}
+              >
+                Share to X
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {/* History Section */}
+      {history.length > 0 && (
+        <div
+          style={{
+            marginTop: 28,
+            background: "rgba(34,32,60,0.94)",
+            borderRadius: 18,
+            maxWidth: 500,
+            width: "100%",
+            padding: 22,
+            color: "#fff",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 18 }}>History</div>
+          {history.map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                borderBottom: idx < history.length - 1 ? "1px solid #312e49" : "none",
+                paddingBottom: 10,
+                marginBottom: 10,
+                position: "relative",
+              }}
+            >
+              <textarea
+                value={item.text}
+                readOnly
+                style={{
+                  width: "100%",
+                  minHeight: 60,
+                  background: "#221e3c",
+                  color: "#fff",
+                  borderRadius: 8,
+                  padding: 8,
+                  fontSize: 15,
+                  border: "1px solid #352a86",
+                  marginBottom: 4,
+                  resize: "vertical",
+                }}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => handleCopy(item.text)}
+                  style={{
+                    flex: 1,
+                    padding: "8px 0",
+                    background: "#3b376c",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 15,
+                    cursor: "pointer",
+                  }}
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={() => handleShare(item.text)}
+                  style={{
+                    flex: 1,
+                    padding: "8px 0",
+                    background: "#1da1f2",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 15,
+                    cursor: "pointer",
+                  }}
+                >
+                  Share
+                </button>
+                <button
+                  onClick={() => handleFavorite(idx)}
+                  style={{
+                    flex: 0.5,
+                    background: item.favorite ? "#ffe066" : "#423a88",
+                    color: item.favorite ? "#222" : "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 16,
+                    cursor: "pointer",
+                  }}
+                >
+                  ★
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Favorites Section */}
+      {favorites.length > 0 && (
+        <div
+          style={{
+            marginTop: 18,
+            background: "rgba(251,245,193,0.88)",
+            borderRadius: 16,
+            maxWidth: 500,
+            width: "100%",
+            padding: 18,
+            color: "#232",
+            boxShadow: "0 2px 8px rgba(180, 160, 70, 0.12)",
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 17 }}>Favorites ★</div>
+          {favorites.map((fav, idx) => (
+            <div key={idx} style={{ marginBottom: 10 }}>
+              <textarea
+                value={fav}
+                readOnly
+                style={{
+                  width: "100%",
+                  minHeight: 40,
+                  background: "#faf4c0",
+                  color: "#232",
+                  borderRadius: 8,
+                  padding: 8,
+                  fontSize: 15,
+                  border: "1px solid #ffe066",
+                  marginBottom: 4,
+                  resize: "vertical",
+                }}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={() => handleCopy(fav)}
+                  style={{
+                    flex: 1,
+                    padding: "7px 0",
+                    background: "#f6e958",
+                    color: "#232",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 15,
+                    cursor: "pointer",
+                  }}
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={() => handleShare(fav)}
+                  style={{
+                    flex: 1,
+                    padding: "7px 0",
+                    background: "#1da1f2",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 15,
+                    cursor: "pointer",
+                  }}
+                >
+                  Share
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
