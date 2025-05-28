@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   const { topic, tone, type } = await req.json();
 
-  // Build your prompt based on input
+  // Build prompt
   let prompt = `Write a ${type === "thread" ? "Twitter thread (5 tweets)" : "single tweet"} about "${topic}" in a "${tone}" tone.`;
   if (tone === "default") prompt = prompt.replace('in a "default" tone.', "");
 
